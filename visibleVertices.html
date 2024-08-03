@@ -1,0 +1,1135 @@
+<!--
+    Course: CSE555
+    Name: Shihao Wen
+    ID: 113085521
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visible Vertices</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #container {
+            display: flex;
+            justify-content: space-around;
+            align-items: flex-start;
+            width: 100%;
+        }
+        canvas {
+            display: block;
+            margin: 0 auto;
+            border: 1px solid black;
+            cursor: crosshair;
+        }
+        .button-container {
+            display: flex;
+        }
+        .button {
+            display: inline-block;
+            margin: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            background-color: #165A92;
+            color: white;
+            cursor: pointer;
+        }
+        .button:hover {
+            background-color: #0C3C5F;
+        }
+        .hidden {
+            display: none;
+        }
+        #visibleVertices {
+            background-color: #EE6352;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        #visibleVertices:hover {
+            background-color: #FF7A5A;
+        }
+        .infoDiv {
+            width: 600px;
+            height: 150px;
+            overflow: auto;
+            border: 1px solid black;
+            margin-bottom: 10px;
+            padding: 5px;
+        }
+        .left, .right {
+            width: 50%;
+        }
+        .left {
+            margin-right: 20px;
+        }
+    </style>
+</head>
+<body>
+    <p id="Alert" style="text-align: center; color: red;"></p>
+    <div id="container">
+        <canvas id="editorCanvas" width="800" height="600"></canvas>
+        <div>
+            <div id="verticesDiv" class="infoDiv" style="display: none;"></div>
+            <canvas id="avlTreeCanvas" width="600" height="258" style="display: none;"></canvas>
+            <div id="stateDiv" class="infoDiv" style="display: none;"></div>
+        </div>
+    </div>
+    <div class="button-container">
+        <input type="number" id="delayTime" placeholder="Delay Time (s)" min="1">
+        <button id="visibleVertices" class="button">Visible Vertices</button>
+        <button id="endButton" class="button hidden">End</button>
+        <button id="addPointButton" class="button">Add Point</button>
+        <button id="createPolygonButton" class="button">Create Polygon</button>
+        <button id="createCompleteButton" class="button hidden">Create Complete</button>
+        <button id="cancelCreateButton" class="button hidden">Cancel Create</button>
+    </div>
+    <div id="container">
+        <div class="left">
+            <h3>Algorithm VISIBLEVERTICES(p,S): Time: O(n * log n), Space: O(log n)</h3>
+            <h4>
+                Input. A set S of polygonal obstacles and a point p that does not lie in the interior of any obstacle.<br>
+                Output. The set of all obstacle vertices visible from p.<br>
+                <br>
+                1. Sort the obstacle vertices according to the clockwise angle that the half-line from p to each vertex makes with the positive x-axis. In case of ties, vertices closer to p should come before vertices farther from p. Let w1,...,wn be the sorted list. O(n * log n)<br>
+                <br>
+                2. Let p be the half-line parallel to the positive x-axis starting at p. Find the obstacle edges that are properly intersected by p, and store them in a balanced search tree T in the order in which they are intersected by p . O(n)<br>
+                <br>
+                3. W ← empty. O(1)<br>
+                <br>
+                4. for i ← 1 to n. O(n * log n)<br>
+                <br>
+                i. if (VISIBLE(wi)), {then Add wi to W}. O(log n)<br>
+                <br>
+                ii. Insert into T the obstacle edges incident to wi that lie on the clock- wise side of the half-line from p to wi. O(1)<br>
+                <br>
+                iii. Delete from T the obstacle edges incident to wi that lie on the counterclockwise side of the half-line from p to wi. O(1)<br>
+                <br>
+                5. return W. O(1)<br>
+            </h4>
+        </div>
+        <div class="right">
+            <div id="detailDiv" class="infoDiv" style="display: none;"></div>
+            <h3>VISIBLE(wi): Time: O(m), m is space of search tree</h3>
+            <h4>
+                1. if (pwi intersects the interior of the obstacle of which wi is a vertex, locally at wi), {then return false}. O(1)<br>
+                <br>
+                2. else if (i = 1 or wi-1 is not on the segment pwi), {then Search in T for the edge e in the leftmost leaf}. O(log m)<br>
+                &emsp;&emsp;i. if (e exists and pwi intersects e), {then return false}. O(1)<br>
+                &emsp;&emsp;ii. else, {return true}. O(1)<br>
+                <br>
+                3. else if (wi-1 is not visible), {then return false}. O(1)<br>
+                <br>
+                4. else, Search in T for an edge e that intersects wi-1wi. O(m)<br>
+                &emsp;&emsp;i. if (e exists), {then return false }. O(1)<br>
+                &emsp;&emsp;ii. else, {return true}. O(1)<br>
+            </h4>
+        </div>
+    </div>
+
+    <script>
+        //*******************************************************************************************************
+        //***********************************          Polygon Editor         ***********************************
+        //*******************************************************************************************************
+        
+        const canvas = document.getElementById('editorCanvas');
+        const ctx = canvas.getContext('2d');
+        let isCreatingPolygon = false;
+        let isVisibleVertices = false;
+        let currentPolygon = [];
+        let currentP = null;
+        let p = null;
+        let obstacles = [];
+        let W = [];
+        let edges = [];
+        let Delay = 1000;
+        let timeouts = [];
+        document.getElementById('delayTime').addEventListener('change', function() {
+            if (this.value < 1) {
+                this.value = 1;
+                Delay = 1000;
+            }else{
+                Delay = 1000 * this.value;
+            }
+        });
+
+        canvas.addEventListener('mousedown', addPoint);
+        canvas.addEventListener('mousedown', addPolygonPoint);
+        canvas.addEventListener('mousemove', drawTemporaryEdge);
+
+        document.getElementById('visibleVertices').addEventListener('click', showVisibleVertices);
+        document.getElementById('endButton').addEventListener('click', endVisibleVertices);
+        document.getElementById('addPointButton').addEventListener('click', savePoint);
+        document.getElementById('createPolygonButton').addEventListener('click', startCreatingPolygon);
+        document.getElementById('createCompleteButton').addEventListener('click', createComplete);
+        document.getElementById('cancelCreateButton').addEventListener('click', cancelCreate);
+
+        function startCreatingPolygon() {
+            isCreatingPolygon = true;
+            currentPolygon = [];
+            document.getElementById('delayTime').style.display = 'none';
+            document.getElementById('visibleVertices').style.display = 'none';
+            document.getElementById('addPointButton').style.display = 'none';
+            document.getElementById('createPolygonButton').style.display = 'none';
+            document.getElementById('createCompleteButton').style.display = 'inline-block';
+            document.getElementById('cancelCreateButton').style.display = 'inline-block';
+        }
+
+        function endCreatingPolygon() {
+            isCreatingPolygon = false;
+            document.getElementById('delayTime').style.display = 'inline-block';
+            document.getElementById('visibleVertices').style.display = 'inline-block';
+            document.getElementById('addPointButton').style.display = 'inline-block';
+            document.getElementById('createPolygonButton').style.display = 'inline-block';
+            document.getElementById('createCompleteButton').style.display = 'none';
+            document.getElementById('cancelCreateButton').style.display = 'none';
+        }
+
+        function showVisibleVertices(event) {
+            forceEnd();
+            W = [];
+            if(p == null || obstacles.length == 0){
+                document.getElementById("Alert").innerHTML = "You didn't set the point and polygon!";
+                return null;
+            }
+            if(!isVisibleVertices){
+                forceEnd();
+                isVisibleVertices = true;
+                document.getElementById('verticesDiv').style.display = 'inline-block';
+                document.getElementById('avlTreeCanvas').style.display = 'inline-block';
+                document.getElementById('stateDiv').style.display = 'inline-block';
+                document.getElementById('detailDiv').style.display = 'inline-block';
+                document.getElementById('endButton').style.display = 'inline-block';
+                document.getElementById('addPointButton').style.display = 'none';
+                document.getElementById('createPolygonButton').style.display = 'none';
+            }
+            visibleVertices(p, obstacles);
+        }
+
+        function endVisibleVertices(event) {
+            forceEnd();
+            W = [];
+            if(isVisibleVertices){
+                isVisibleVertices = false;
+                document.getElementById('verticesDiv').style.display = 'none';
+                document.getElementById('avlTreeCanvas').style.display = 'none';
+                document.getElementById('stateDiv').style.display = 'none';
+                document.getElementById('detailDiv').style.display = 'none';
+                document.getElementById('endButton').style.display = 'none';
+                document.getElementById('addPointButton').style.display = 'inline-block';
+                document.getElementById('createPolygonButton').style.display = 'inline-block';
+            }
+        }
+
+        function addPoint(event) {
+            if (isCreatingPolygon) return;
+            if (isVisibleVertices) return;
+            document.getElementById("Alert").innerHTML = "";
+            currentP = { x: event.offsetX, y: event.offsetY };
+            if(!insidePoint(currentP)){
+                clearCanvas();
+                ctx.fillStyle = 'green';
+                drawPoint(currentP);
+                drawObstacles();
+            }else{
+                document.getElementById("Alert").innerHTML = "The point is inside the polygon!";
+                currentP = null;
+            }
+        }
+
+        function savePoint(event) {
+            if (isCreatingPolygon) return;
+            p = currentP
+            clearCanvas();
+            drawObstacles();
+        }
+
+        function addPolygonPoint(event) {
+            if (!isCreatingPolygon) return;
+            document.getElementById("Alert").innerHTML = "";
+            let point = { x: event.offsetX, y: event.offsetY };
+            if (currentPolygon.length > 0) {
+                let prevPoint = currentPolygon[currentPolygon.length - 1];
+                if (!doSegmentsIntersect(prevPoint, point) && !doSegmentsIntersect(point, currentPolygon[0])) {
+                    if(currentPolygon.length > 1) {
+                        if(!intersectPolygon(point)){
+                            currentPolygon.push(point);
+                        }else{
+                            document.getElementById("Alert").innerHTML = "Other polygons are covered!";
+                        }
+                    }else{
+                        currentPolygon.push(point);
+                    }
+                    drawTemporaryEdge(event);
+                }else{
+                    document.getElementById("Alert").innerHTML = "Intersect with other edges!";
+                }
+            } else {
+                currentPolygon.push(point);
+            }
+        }
+
+        function drawTemporaryEdge(event) {
+            if (!isCreatingPolygon || currentPolygon.length < 1) return;
+            let point = { x: event.offsetX, y: event.offsetY };
+            let prevPoint = currentPolygon[currentPolygon.length - 1];
+            clearCanvas();
+            drawObstacles();
+            drawPolygon(currentPolygon, '');
+            if(currentPolygon.length == 1){
+                ctx.fillStyle = 'blue';
+                drawPoint(currentPolygon[0]);
+            }
+            ctx.strokeStyle = 'green';
+            if(currentPolygon.length == 2){
+                ctx.fillStyle = 'blue';
+                drawPoint(currentPolygon[0]);
+                drawPoint(currentPolygon[1]);
+                drawEdges(currentPolygon[0], currentPolygon[1], null);
+            }
+            drawEdges(prevPoint, point, null);
+        }
+
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function drawObstacles() {
+            ctx.strokeStyle = 'gray';
+            for(let w of W){
+                drawEdges(p, w.point, null);
+            }
+            for (let i = 0; i < obstacles.length; i++) {
+                drawPolygon(obstacles[i], i);
+            }
+            ctx.strokeStyle = 'red';
+            for(let edge of edges){
+                drawEdges(edge.start, edge.end, null);
+            }
+            if(p != null){
+                ctx.fillStyle = 'red';
+                drawPoint(p)
+            }
+        }
+
+        function drawPolygon(polygon, label) {
+            if (polygon.length < 3) return;
+            ctx.fillStyle = 'gray';
+            ctx.beginPath();
+            ctx.moveTo(polygon[0].x, polygon[0].y);
+            for (let i = 1; i < polygon.length; i++) {
+                ctx.lineTo(polygon[i].x, polygon[i].y);
+            }
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.strokeStyle = 'green';
+            ctx.fillStyle = 'blue';
+            for (let i = 1; i < polygon.length; i++) {
+                drawEdges(polygon[i - 1], polygon[i], label+'|e'+i);
+            }
+            drawEdges(polygon[polygon.length - 1], polygon[0], label+'|e0');
+        }
+
+        function drawEdges(start, end, label) {
+            ctx.beginPath();
+            ctx.moveTo(start.x, start.y);
+            ctx.lineWidth = 3;
+            ctx.lineTo(end.x, end.y);
+            ctx.stroke();
+            if(label != null){
+                let midX = (start.x + end.x) / 2;
+                let midY = (start.y + end.y) / 2;
+                ctx.fillText(label, midX, midY);
+            }
+            drawPoint(end);
+        }
+
+        function drawPoint(point) {
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.font = '12px Arial';
+            ctx.fillText('('+point.x+','+point.y+')', point.x + 5, point.y - 5);
+        }
+
+        function createComplete() {
+            currentP = null;
+            endCreatingPolygon();
+            if (currentPolygon.length > 2) {
+                obstacles.push(currentPolygon);
+            }
+            clearCanvas();
+            drawObstacles();
+            currentPolygon = [];
+        }
+
+        function cancelCreate() {
+            endCreatingPolygon();
+            currentPolygon = [];
+            clearCanvas();
+            drawObstacles();
+        }
+
+        function doSegmentsIntersect(p1, q1) {
+            for (let obstacle of obstacles) {
+                for (let i = 0; i < obstacle.length - 1; i++) {
+                    let p2 = obstacle[i];
+                    let q2 = obstacle[i + 1];
+                    if (intersectsSegment(p1, q1, p2, q2)) {
+                        return true;
+                    }
+                }
+            }
+            for (let i = 0; i < currentPolygon.length - 1; i++) {
+                let p2 = currentPolygon[i];
+                let q2 = currentPolygon[i + 1];
+                if (intersectsSegment(p1, q1, p2, q2)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function intersectPolygon(point){
+            if(p != null){
+                if(insidePolygon(p, point)){
+                    return true;
+                }
+            }
+
+            if(obstacles.length == 0){
+                return false;
+            }else{
+                for (let obstacle of obstacles) {
+                    for (let i = 0; i < obstacle.length; i++) {
+                        if(insidePolygon(obstacle[i], point)){
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        function insidePolygon(op, point){
+            let ans = Left(currentPolygon[0], currentPolygon[1], op);
+            let ans1 = true;
+            for (let j = 1; j < currentPolygon.length-1; j++){
+                if(ans !== Left(currentPolygon[j], currentPolygon[j+1], op)){
+                    ans1 = false
+                    break
+                }
+            }
+            if(ans !== Left(currentPolygon[currentPolygon.length-1], point, op)){
+                ans1 = false
+            }
+            if(ans !== Left(point, currentPolygon[0], op)){
+                ans1 = false
+            }
+            if(ans1){
+                return true;
+            }
+            return false;
+        }
+
+        function insidePoint(point){
+            if(obstacles.length == 0){
+                return false;
+            }
+            for (let obstacle of obstacles) {
+                let ans = Left(obstacle[0], obstacle[1], point);
+                let ans1 = true;
+                for (let i = 1; i < obstacle.length-1; i++) {
+                    if(ans !== Left(obstacle[i], obstacle[i+1], point)){
+                        ans1 = false
+                        break;
+                    }
+                }
+                if(ans !== Left(obstacle[obstacle.length-1], obstacle[0], point)){
+                    ans1 = false
+                }
+                if(ans1){
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function Left(a, b, c) {
+            return ((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y)) > 0;
+        }
+
+        function Collinear(a, b, c) {
+            return ((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y)) === 0;
+        }
+
+        function intersectsSegment(a, b, c, d) {
+            if (Collinear(a, b, c) || Collinear(a, b, d) || Collinear(c, d, a) || Collinear(c, d, b)) {
+                return false;
+            }
+            return (Left(a, b, c) !== Left(a, b, d)) && (Left(c, d, a) !== Left(c, d, b));
+        }
+
+        //*******************************************************************************************************
+        //***********************************         Visible Vertices        ***********************************
+        //*******************************************************************************************************
+
+        // Function to find visible vertices from a point p
+        function visibleVertices(p, obstacles) {
+            const avlTreeCanvas = document.getElementById('avlTreeCanvas');
+            const avlTreeCtx = avlTreeCanvas.getContext('2d');
+            // Sort the obstacle vertices based on clockwise angle with p
+            let sortedVertices = [];
+            let T = new avlTree();
+            edges = [];
+            W = [];
+            /*
+            1. Sort the obstacle vertices according to the clockwise angle that the half-line from p to each vertex makes with the positive x-axis. 
+            In case of ties, vertices closer to p should come before vertices farther from p. Let w1,...,wn be the sorted list.
+
+            2. Let ρ be the half-line parallel to the positive x-axis starting at p. 
+            Find the obstacle edges that are properly intersected by ρ, 
+            and store them in a balanced search tree T in the order in which they are intersected by ρ .
+            */
+            let halfLine = {
+                start: p,
+                end: {
+                    x: 10000,
+                    y: p.y
+                }
+            }
+            const StateDiv = document.getElementById('stateDiv');
+            let string = '';
+            StateDiv.innerHTML = '<h3>Search tree status (The order of intersection with yellow line):</h3>';
+            StateDiv.innerHTML += '<h4>{The clockwise edge of the vertex is Insert, and the counterclockwise edge is Delete.}</h4>';
+            string += '<p>Line parallel to x-axis: ';
+            for(let j = 0; j < obstacles.length; j++) {
+                for(let i = 0; i < obstacles[j].length; i++) {
+                    sortedVertices.push({
+                        j: j,
+                        index: i,
+                        point: obstacles[j][i],
+                        obstacle: obstacles[j],
+                        angle: calculateAngle(p, obstacles[j][i]),
+                        distance: distance(p, obstacles[j][i])
+                    });
+                    if(i != obstacles[j].length-1){
+                        if(intersectsSegment(p, halfLine.end, obstacles[j][i], obstacles[j][i+1])){
+                            let edge = {
+                                j: j,
+                                i: i+1,
+                                key: null,
+                                start: obstacles[j][i],
+                                end: obstacles[j][i+1]
+                            }
+                            edge.key = distanceToIntersection(p, halfLine, edge),
+                            T.insert(edge.key, edge);
+                            edges.push(edge);
+                            string += `Insert(${edge.j}|e${edge.i}): {(${edge.start.x},${edge.start.y}), (${edge.end.x},${edge.end.y})}. `;
+                        }
+                    }
+                }
+                if(intersectsSegment(p, halfLine.end, obstacles[j][obstacles[j].length-1], obstacles[j][0])){
+                    let edge = {
+                        j: j,
+                        i: 0,
+                        key: null,
+                        start: obstacles[j][obstacles[j].length-1],
+                        end: obstacles[j][0]
+                    }
+                    edge.key = distanceToIntersection(p, halfLine, edge),
+                    T.insert(edge.key, edge);
+                    edges.push(edge);
+                    string += `Insert(${edge.j}|e${edge.i}): {(${edge.start.x},${edge.start.y}), (${edge.end.x},${edge.end.y})}. `;
+                }
+            }
+            clearCanvas();
+            drawObstacles();
+            string += '</p>';
+            StateDiv.innerHTML += string;
+            string = '';
+            ctx.strokeStyle = 'yellow';
+            ctx.fillStyle = 'red';
+            drawEdges(p, halfLine.end, null);
+            ctx.fillStyle = 'blue';
+            drawAVLTree(avlTreeCtx, T.root, avlTreeCanvas.width / 2, 25, 1);
+            //
+            sortedVertices.sort((a, b) => {
+                if(a.angle !== b.angle) {
+                    return a.angle - b.angle;
+                } else {
+                    return a.distance - b.distance;
+                }
+            });
+            const VerticesDiv = document.getElementById('verticesDiv');
+            VerticesDiv.innerHTML = '<h3>Sorted Vertices (Sort by angle with x-axis):</h3>';
+            for (let vertex of sortedVertices) {
+                VerticesDiv.innerHTML += `<p>X: ${vertex.point.x}, Y: ${vertex.point.y}, Angle: ${vertex.angle}, Distance: ${vertex.distance}</p>`;
+            }
+
+             // start
+            const detailDiv = document.getElementById('detailDiv');
+            detailDiv.innerHTML = '<h3>Visible and invisible details of obstacle vertices:</h3>';
+            for(let j = 0; j < sortedVertices.length; j++) {
+                let timeout = setTimeout(function(){
+                    let wi = sortedVertices[j];
+                    let wPrev = (j === 0) ? null : sortedVertices[j - 1];
+                    clearCanvas();
+                    ctx.strokeStyle = 'yellow';
+                    ctx.fillStyle = 'red';
+                    drawEdges(p, wi.point, null);
+                    ctx.fillStyle = 'blue';
+                    if(isVisible(p, wi, wPrev, T, W, detailDiv)) {
+                        W.push(wi);
+                    }
+                    // Insert and delete obstacle edges in T based on wi
+                    let p1 = null;
+                    let p2 = null;
+                    let distance1 = null;
+                    let distance2 = null;
+                    let indexP1 = null;
+                    let indexP2 = null;
+                    let temp = null;
+                    let angle1 = null;
+                    let angle2 = null;
+                    let distance0 = distance(p, wi.point);
+                    if(wi.index == 0){
+                        p1 = wi.obstacle[wi.obstacle.length-1];
+                        p2 = wi.obstacle[1];
+                        indexP1 = 0;
+                        indexP2 = 1;
+                        angle1 = angleBetweenSides(p, wi, wi.obstacle[wi.obstacle.length-1]);
+                        angle2 = angleBetweenSides(p, wi, wi.obstacle[1]);
+                        if(angle1 > angle2){
+                            distance1 = distance0 + 1;
+                            distance2 = distance0 - 1;
+                        }else{
+                            distance1 = distance0 - 1;
+                            distance2 = distance0 + 1;
+                        }
+                    }else if(wi.index == wi.obstacle.length-1){
+                        p1 = wi.obstacle[wi.index-1];
+                        p2 = wi.obstacle[0];
+                        indexP1 = wi.index;
+                        indexP2 = 0;
+                        angle1 = angleBetweenSides(p, wi, wi.obstacle[wi.index-1]);
+                        angle2 = angleBetweenSides(p, wi, wi.obstacle[0]);
+                        if(angle1 > angle2){
+                            distance1 = distance0 + 1;
+                            distance2 = distance0 - 1;
+                        }else{
+                            distance1 = distance0 - 1;
+                            distance2 = distance0 + 1;
+                        }
+                    }else{
+                        p1 = wi.obstacle[wi.index-1];
+                        p2 = wi.obstacle[wi.index+1];
+                        indexP1 = wi.index;
+                        indexP2 = wi.index+1;
+                        angle1 = angleBetweenSides(p, wi, wi.obstacle[wi.index-1]);
+                        angle2 = angleBetweenSides(p, wi, wi.obstacle[wi.index+1]);
+                        if(angle1 > angle2){
+                            distance1 = distance0 + 1;
+                            distance2 = distance0 - 1;
+                        }else{
+                            distance1 = distance0 - 1;
+                            distance2 = distance0 + 1;
+                        }
+                    }
+
+                    let index1 = null;
+                    let index2 = null
+                    string += `<p>Obstacle vertex (${wi.point.x},${wi.point.y}): `;
+                    if(!Left(p, wi.point, p1)){
+                        index1 = findEdge(edges, wi, p1);
+                        if(index1 != null){
+                            string += `Delete(${edges[index1].j}|e${edges[index1].i}): {(${edges[index1].start.x},${edges[index1].start.y}), (${edges[index1].end.x},${edges[index1].end.y})}. `;
+                            T.delete(edges[index1].key);
+                            edges.splice(index1, 1);
+                        }
+                    } else if(!Collinear(p, wi.point, p1)) {
+                        index1 = findEdge(edges, wi, p1);
+                        if(index1 == null){
+                            let edge = {
+                                j: wi.j,
+                                i: indexP1,
+                                key: distance1,
+                                start: wi.point,
+                                end: p1
+                            }
+                            T.insert(distance1, edge);
+                            edges.push(edge);
+                            string += `Insert(${edge.j}|e${edge.i}): {(${edge.start.x},${edge.start.y}), (${edge.end.x},${edge.end.y})}. `;
+                        }
+                    }
+
+                    if(!Left(p, wi.point, p2)){
+                        index2 = findEdge(edges, wi, p2);
+                        if(index2 != null){
+                            string += `Delete(${edges[index2].j}|e${edges[index2].i}): {(${edges[index2].start.x},${edges[index2].start.y}), (${edges[index2].end.x},${edges[index2].end.y})}. `;
+                            T.delete(edges[index2].key);
+                            edges.splice(index2, 1);
+                        }
+                    } else if(!Collinear(p, wi.point, p2)) {
+                        index2 = findEdge(edges, wi, p2);
+                        if(index2 == null){
+                            let edge = {
+                                j: wi.j,
+                                i: indexP2,
+                                key: distance2,
+                                start: wi.point,
+                                end: p2
+                            }
+                            T.insert(distance2, edge);
+                            edges.push(edge);
+                            string += `Insert(${edge.j}|e${edge.i}): {(${edge.start.x},${edge.start.y}), (${edge.end.x},${edge.end.y})}. `;
+                        }
+                    }
+                    string += '</p>';
+                    StateDiv.innerHTML += string;
+                    string = '';
+                    drawObstacles();
+                    avlTreeCtx.clearRect(0, 0, avlTreeCanvas.width, avlTreeCanvas.height);
+                    drawAVLTree(avlTreeCtx, T.root, avlTreeCanvas.width / 2, 20, 1);
+                    updateParagraph(VerticesDiv, wi.point.x, wi.point.y)
+                }, (j+1) * Delay);
+                timeouts.push(timeout);
+            }
+            return W;
+        }
+
+        function forceEnd() {
+            for (let i = 0; i < timeouts.length; i++) {
+                clearTimeout(timeouts[i]);
+            }
+        }
+
+        function findEdge(edges, wi, point) {
+            for(let i = 0; i < edges.length; i++) {
+                if(edges[i].start.x === wi.point.x && edges[i].start.y === wi.point.y){
+                    if(edges[i].end.x === point.x && edges[i].end.y === point.y){
+                        return i;
+                    }
+                }else if(edges[i].end.x === wi.point.x && edges[i].end.y === wi.point.y){
+                    if(edges[i].start.x === point.x && edges[i].start.y === point.y){
+                        return i;
+                    }
+                }
+
+            }
+        }
+
+        function updateParagraph(div, x, y) {
+            let paragraph = Array.from(div.getElementsByTagName('p')).find(p => p.textContent.includes('X: '+x+', Y: '+y));
+            if (!paragraph) return;
+            paragraph.style.color = 'red';
+            div.scrollTo({
+                top: paragraph.offsetTop-100,
+                behavior: 'smooth'
+            });
+        }
+
+        function drawAVLTree(ctx, rootNode, x, y, level) {
+            if (!rootNode) return;
+            
+            // Draw current node
+            ctx.beginPath();
+            ctx.arc(x, y, 15, 0, 2 * Math.PI);
+            ctx.fillStyle = 'black';
+            ctx.fill();
+            ctx.fillStyle = 'white';
+            ctx.font = '15px Arial';
+            ctx.fillText(`${rootNode.value.j}|e${rootNode.value.i}`, x - 14, y + 5);
+            ctx.stroke();
+        
+            // Draw connections to children
+            const childY = y + 50;
+            if (rootNode.left) {
+                const leftChildX = x - 20 * (1 << (level - 1));
+                ctx.beginPath();
+                ctx.moveTo(x, y + 15);
+                ctx.lineTo(leftChildX, childY - 15);
+                ctx.stroke();
+                drawAVLTree(ctx, rootNode.left, leftChildX, childY, level + 1);
+            }
+            if (rootNode.right) {
+                const rightChildX = x + 20 * (1 << (level - 1));
+                ctx.beginPath();
+                ctx.moveTo(x, y + 15);
+                ctx.lineTo(rightChildX, childY - 15);
+                ctx.stroke();
+                drawAVLTree(ctx, rootNode.right, rightChildX, childY, level + 1);
+            }
+        }
+
+        function angleBetweenSides(p1, p2, p3) {
+            // Vectors representing the sides
+            let vector1 = { x: p1.x - p2.x, y: p1.y - p2.y };
+            let vector2 = { x: p3.x - p2.x, y: p3.y - p2.y };
+            
+            // Calculate dot product
+            let dotProduct = vector1.x * vector2.x + vector1.y * vector2.y;
+            
+            // Calculate magnitudes of vectors
+            let magnitude1 = Math.sqrt(vector1.x * vector1.x + vector1.y * vector1.y);
+            let magnitude2 = Math.sqrt(vector2.x * vector2.x + vector2.y * vector2.y);
+            
+            // Calculate cosine of the angle
+            let cosTheta = dotProduct / (magnitude1 * magnitude2);
+            
+            // Calculate angle in radians
+            let angleRadians = Math.acos(cosTheta);
+ 
+            return angleRadians;
+        }
+        
+        function calculateAngle(p, q) {
+            let angle = Math.atan2(q.y - p.y, q.x - p.x);
+            if(angle < 0) {
+                angle += 2 * Math.PI;
+            }
+            return angle;
+        }
+
+        function distance(p1, p2) {
+            return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+        }
+
+        function distanceToIntersection(p, edge1, edge2) {
+            let intersection = intersectionPoint(edge1, edge2);
+            return distance(p, intersection);
+        }
+
+        function intersectionPoint(edge1, edge2) {
+            let x1 = edge1.start.x;
+            let y1 = edge1.start.y;
+            let x2 = edge1.end.x;
+            let y2 = edge1.end.y;
+            let x3 = edge2.start.x;
+            let y3 = edge2.start.y;
+            let x4 = edge2.end.x;
+            let y4 = edge2.end.y;
+        
+            let denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+            if (denominator === 0) {
+                // Lines are parallel, no intersection
+                return null;
+            }
+        
+            let px = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / denominator;
+            let py = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / denominator;
+        
+            return { x: px, y: py };
+        }
+
+        function isVisible(p, wi, wPrev, T, W, detailDiv) {
+            let string = `<p>Obstacle vertex (${wi.point.x},${wi.point.y}): <br>`
+            for(let i = 0; i < wi.obstacle.length-1; i++) {
+                if(intersectsSegment(p, wi.point, wi.obstacle[i], wi.obstacle[i+1])) {
+                    // If pwi intersects the interior of obstacle of wi
+                    string += `&emsp;1. pwi intersects {(${wi.obstacle[i].x},${wi.obstacle[i].y}); (${wi.obstacle[i+1].x},${wi.obstacle[i+1].y})} the interior of obstacle of wi<br>Invisible.</p>`;
+                    detailDiv.innerHTML += string;
+                    return false;
+                }
+            }
+            if(intersectsSegment(p, wi.point, wi.obstacle[wi.obstacle.length-1], wi.obstacle[0])) {
+                // If pwi intersects the interior of obstacle of wi
+                string += `&emsp;1. pwi intersects {(${wi.obstacle[wi.obstacle.length-1].x},${wi.obstacle[wi.obstacle.length-1].y}); (${wi.obstacle[0].x},${wi.obstacle[0].y})} the interior of obstacle of wi<br>Invisible.</p>`;
+                detailDiv.innerHTML += string;
+                return false;
+            }
+            string += `&emsp;1. pwi does not intersect the interior of obstacle of wi.<br>`;
+
+            if(wPrev == null || !T.onSegment(p, wPrev.point, wi.point)) {
+                // If wi-1 doesn't exist or it's not on the segment pwi, directly check the leftmost leaf in T
+                if(wPrev == null){
+                    string += `&emsp;2. wi-1 doesn't exist<br>`;
+                }else{
+                    string += `&emsp;2. wi-1(${wPrev.point.x},${wPrev.point.y}) not on the segment pwi<br>`;
+                }
+
+                let leftmostLeaf = T.minValueNode(T.root);
+                if (leftmostLeaf != null && intersectsSegment(p, wi.point, leftmostLeaf.value.start, leftmostLeaf.value.end)) {
+                    // If leftmost leaf exists and pwi intersects with leftmost leaf
+                    string += `&emsp;&emsp;i. pwi intersects with leftmost leaf{(${leftmostLeaf.value.start.x},${leftmostLeaf.value.start.y}),(${leftmostLeaf.value.end.x},${leftmostLeaf.value.end.y})}<br>Invisible.</p>`;
+                    detailDiv.innerHTML += string;
+                    return false;
+                } else {
+                    if(leftmostLeaf == null){
+                        string += `&emsp;&emsp;ii. leftmost leaf not exists<br>Visible.</p>`;
+                    }else{
+                        string += `&emsp;&emsp;ii. pwi not intersects with leftmost leaf{(${leftmostLeaf.value.start.x},${leftmostLeaf.value.start.y}),(${leftmostLeaf.value.end.x},${leftmostLeaf.value.end.y})}<br>Visible.</p>`;
+                    }
+                    detailDiv.innerHTML += string;
+                    return true;
+                }
+            }else{
+                string += `&emsp;2. wi-1(${wPrev.point.x},${wPrev.point.y}) on the segment pwi<br>`;
+                for(let w of W){
+                    if(w.point.x == wPrev.point.x && w.point.y == wPrev.point.y){
+                        string += `&emsp;3. wi-1 is visible<br>`;
+                        // Check if the segment wi-1wi is intersected with any leaf in T
+                        if (T.haveIntersectedEdge(wPrev.point, wi.point)) {
+                            string += `&emsp;4.i. wi-1wi is intersected with any leaf in T<br>Invisible.</p>`;
+                            detailDiv.innerHTML += string;
+                            return false;
+                        } else {
+                            string += `&emsp;4.ii. wi-1wi is not intersected with any leaf in T<br>Visible.</p>`;
+                            detailDiv.innerHTML += string;
+                            return true;
+                        }
+                    }
+                }
+                // If wi-1 is not visible, wi is not visible either
+                string += `&emsp;3. wi-1 is not visible<br>Invisible.</p>`;
+                detailDiv.innerHTML += string;
+                return false;
+            }
+        }
+        //*******************************************************************************************************
+        //***********************************             AVL Tree            ***********************************
+        //*******************************************************************************************************
+
+        class TreeNode {
+            constructor(key, value) {
+                this.left = null;
+                this.right = null;
+                this.height = null;
+                this.key = key;
+                this.value = value;
+            }
+
+            /*      b                           a
+            *      / \                         / \
+            *     a   e -> b.rotateRight() -> c   b
+            *    / \                             / \
+            *   c   d                           d   e
+            */
+            rotateRight() {
+                let temp = this.left;
+                this.left = temp.right;
+                temp.right = this;
+                this.height = Math.max(this.leftHeight(), this.rightHeight()) + 1;
+                temp.height = Math.max(temp.leftHeight(), this.height) + 1;
+                return temp;
+            };
+
+            /*    a                              b
+            *    / \                            / \
+            *   c   b   -> a.rotateLeft() ->   a   e
+            *      / \                        / \
+            *     d   e                      c   d
+            */
+            rotateLeft() {
+                let temp = this.right;
+                this.right = temp.left;
+                temp.left = this;
+                this.height = Math.max(this.leftHeight(), this.rightHeight()) + 1;
+                temp.height = Math.max(temp.rightHeight(), this.height) + 1;
+                return temp;
+            };
+        
+            leftHeight() {
+                if (!this.left) {
+                    return -1;
+                }
+                return this.left.height;
+            };
+        
+            rightHeight() {
+                if (!this.right) {
+                    return -1;
+                }
+                return this.right.height;
+            };
+        }
+          
+        class avlTree{
+            constructor() {
+                this.root = null;
+            }
+        
+            compare(a, b) {
+                if (a > b) {
+                    return 1;
+                } else if (a < b) {
+                    return -1;
+                }
+                return 0;
+            };
+        
+            insert(key, value) {
+                this.root = this._insert(key, value, this.root);
+            };
+        
+            _insert = function (key, value, root) {
+                if (root === null) {
+                    return new TreeNode(key, value);
+                }
+                
+                if (this.compare(key, root.key) < 0) {
+                    root.left = this._insert(key, value, root.left);
+                } else if (this.compare(key, root.key) > 0) {
+                    root.right = this._insert(key, value, root.right);
+                } else {
+                    return root;
+                }
+                
+                // Update height and rebalance tree
+                root.height = Math.max(root.leftHeight(), root.rightHeight()) + 1;
+                let rootBalance = root.leftHeight() - root.rightHeight();
+                
+                if (rootBalance === 2) {
+                    if (this.compare(key, root.left.key) < 0) {
+                        root = root.rotateRight();
+                    } else {
+                        root.left = root.left.rotateLeft();
+                        return root.rotateRight();
+                    }
+                } else if (rootBalance === -2) {
+                    if (this.compare(key, root.right.key) > 0) {
+                        root = root.rotateLeft();
+                    } else {
+                        root.right = root.right.rotateRight();
+                        return root.rotateLeft();
+                    }
+                }
+                
+                return root;
+            };
+        
+            delete(key) {
+                this.root = this._delete(key, this.root);
+            };
+        
+            _delete(key, root) {
+                if (root === null) {
+                    return null;
+                }
+            
+                if (this.compare(key, root.key) < 0) {
+                    root.left = this._delete(key, root.left);
+                } else if (this.compare(key, root.key) > 0) {
+                    root.right = this._delete(key, root.right);
+                } else {
+                    if (root.left == null && root.right == null) {
+                        return null;
+                    } else if (root.left == null && root.right != null) {
+                        root = root.right;
+                    } else if (root.left != null && root.right == null) {
+                        root = root.left;
+                    } else {
+                        // Node has 2 children, get the in-order successor
+                        var inOrderSuccessor = this.minValueNode(root.right);
+                        root.key = inOrderSuccessor.key;
+                        root.value = inOrderSuccessor.value;
+                        root.right = this._delete(inOrderSuccessor.key, root.right);
+                    }
+                }
+
+                // Update height and rebalance tree
+                root.height = Math.max(root.leftHeight(), root.rightHeight()) + 1;
+                let rootBalance = root.leftHeight() - root.rightHeight();
+            
+                if (rootBalance === 2) {
+                    let leftBalance = root.left.leftHeight() - root.left.rightHeight();
+                    if (leftBalance === 0 || leftBalance === 1) {
+                        return root.rotateRight();
+                    } else if (leftBalance === -1) {
+                        root.left = root.left.rotateLeft();
+                        return root.rotateRight();
+                    }
+                }else if (rootBalance === -2) {
+                    let rightBalance = root.right.leftHeight() - root.right.rightHeight();
+                    if (rightBalance === 0 || rightBalance === -1) {
+                        return root.rotateLeft();
+                    } else if (rightBalance === 1) {
+                        root.right = root.right.rotateRight();
+                        return root.rotateLeft();
+                    }
+                }
+            
+                return root;
+            };
+        
+            get(key) {
+                if (this.root === null) {
+                    return null;
+                }
+                return this._get(key, this.root).value;
+            };
+        
+            _get(key, root) {
+                let result = this.compare(key, root.key);
+            
+                if (result === 0) {
+                    return root;
+                } else if (result < 0) {
+                    if (!root.left) {
+                        return null;
+                    }
+                    return this._get(key, root.left);
+                } else if (!root.right) {
+                    return null;
+                }
+        
+                return this._get(key, root.right);
+            };
+        
+            contains(key) {
+                if (this.root === null) {
+                    return false;
+                }
+                if(this._get(key, this.root) == null){
+                    return false;
+                }
+                return true;
+            };
+        
+            minValueNode(root) {
+                if (root == null) {
+                    return null;
+                }
+                if (root.left == null) {
+                    return root;
+                }              
+                return this.minValueNode(root.left)
+            };
+
+            haveIntersectedEdge(wPrev_P, wi_P){
+                if(this.root != null) {
+                    return this._haveIntersectedEdge(wPrev_P, wi_P, this.root)
+                }
+                return false;
+            }
+        
+            _haveIntersectedEdge(wPrev_P, wi_P, root){
+                if(root == null) return false;
+                if(intersectsSegment(wPrev_P, wi_P, root.value.start, root.value.end)){
+                    return true;
+                } else {
+                    return this._haveIntersectedEdge(wPrev_P, wi_P, root.left) | this._haveIntersectedEdge(wPrev_P, wi_P, root.right)
+                }
+            }
+        
+            onSegment(a, b, c)
+            {
+                if (!Collinear(a, b, c)){
+                    return false;
+                } else if (a.x !== b.x){
+                    return ((a.x <= c.x) && (c.x <= b.x)) || ((a.x >= c.x) && (c.x >= b.x));
+                }
+                return ((a.y <= c.y) && (c.y <= b.y)) || ((a.y >= c.y) && (c.y >= b.y));
+            }
+        }
+    </script>
+</body>
+</html>
